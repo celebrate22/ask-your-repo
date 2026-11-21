@@ -1,0 +1,15 @@
+# Virtual environment (holds pytest & all pip-installed packages)
+.venv/
+venv/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+
+# Pytest & coverage cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variables (API keys, etc.)
+.env

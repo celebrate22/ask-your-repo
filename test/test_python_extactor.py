@@ -1,5 +1,5 @@
 import pytest
-from main import extract_functions, extract_functions_from_source
+from src.ask_repo.ingestion.python_extractor import extract_functions, extract_functions_from_source
 
 
 def test_empty_and_functionless_sources():
