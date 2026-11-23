@@ -1,6 +1,5 @@
 import pytest
-from walker import find_python_files
-
+from src.ask_repo.ingestion.walker import find_python_files
 
 def test_find_python_files_missing_folder_raises(tmp_path):
     with pytest.raises(FileNotFoundError):

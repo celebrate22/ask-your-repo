@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/ask_repo/ingestion/chunker.py
+src/ask_repo/ingestion/github_client.py
+src/ask_repo/ingestion/python_extractor.py
+src/ask_repo/ingestion/walker.py
+src/askrepo.egg-info/PKG-INFO
+src/askrepo.egg-info/SOURCES.txt
+src/askrepo.egg-info/dependency_links.txt
+src/askrepo.egg-info/top_level.txt
+test/test_python_extractor.py
+test/test_walker.py
