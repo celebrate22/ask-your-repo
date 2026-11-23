@@ -32,4 +32,4 @@ This document records the core engineering decisions, trade-offs, and constraint
 
 * **Decision:** `find_python_files` discovers `.py` files purely by filename extension without reading or parsing their contents—meaning files with syntax errors (e.g., `broken.py`) are still returned in the file list.
 * **Why:** Keeping discovery decoupled from AST parsing ensures `walk_repo` can account for every Python file in a repository and explicitly record which files failed to parse, rather than having broken files vanish silently during traversal.
-* **What would change our mind:** Supporting extensionless Python scripts (e.g., CLI executables with `#!/usr/bin/env python3` shebangs), which would require inspecting file headers during discovery.
+* **What would change our mind:** Supporting extensionless Python scripts (e.g., CLI executables with `#!/usr/bin/env python3` shebangs), which would require inspecting file headers during discovry.
