@@ -1,5 +1,6 @@
 """Given a folder, return a sorted list of paths to every .py file inside it, 
 relative to that folder, skipping junk folders."""
+
 import os
 from pathlib import Path
 
@@ -19,7 +20,7 @@ JUNK_DIRS = {
 }
 
 
-def find_python_files(folder: str) -> list[str]:
+def find_python_files(folder: str | os.PathLike) -> list[str]:
     """Return a sorted list of POSIX-style relative paths to all .py files in folder."""
     if not os.path.exists(folder):
         raise FileNotFoundError(f"Directory does not exist: {folder}")
