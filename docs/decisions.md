@@ -32,4 +32,13 @@ This document records the core engineering decisions, trade-offs, and constraint
 
 * **Decision:** `find_python_files` discovers `.py` files purely by filename extension without reading or parsing their contents—meaning files with syntax errors (e.g., `broken.py`) are still returned in the file list.
 * **Why:** Keeping discovery decoupled from AST parsing ensures `walk_repo` can account for every Python file in a repository and explicitly record which files failed to parse, rather than having broken files vanish silently during traversal.
-* **What would change our mind:** Supporting extensionless Python scripts (e.g., CLI executables with `#!/usr/bin/env python3` shebangs), which would require inspecting file headers during discovry.
+* **What would change our mind:** Supporting extensionless Python scripts (e.g., CLI executables with `#!/usr/bin/env python3` shebangs), which would require inspecting file headers during discovery.
+
+
+## 1. Syntax Errors Raise Instead of Returning `[]`
+* **Decision:** Files with invalid Python syntax raise a `SyntaxError` during extraction rather than silently returning `[]`.
+* **Why:** An empty list (`[]`) must have one unambiguous meaning: a valid file with zero functions. Raising allows `walk_repo` to catch and record broken files explicitly instead of hiding them.
+
+## 2. `env/`, `build/`, and `dist/` Are Not Skipped in v1
+* **Decision:** Only unambiguous tool and cache folders (`.git`, `.venv`, `venv`, `__pycache__`, etc.) are skipped; `env/`, `build/`, and `dist/` are left in.
+* **Downside:** A repository that uses `env/` for its virtual environment will have all of its third-party library code indexed as if it belonged to the project. We will revisit this in v2 by parsing `.gitignore` directly.

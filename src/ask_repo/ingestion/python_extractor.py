@@ -67,7 +67,3 @@ def extract_functions(file_path):
     with open(file_path, "r", encoding="utf-8") as file:
         source = file.read()
     return extract_functions_from_source(source, filename=str(file_path))
-
-
-if __name__ == "__main__":
-    pprint.pprint(extract_functions("sample.py"))

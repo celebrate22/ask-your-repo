@@ -6,6 +6,9 @@ venv/
 __pycache__/
 *.py[cod]
 
+# Packaging & editable install metadata
+*.egg-info/
+
 # Pytest & coverage cache
 .pytest_cache/
 .coverage
