@@ -1,5 +1,5 @@
 import pytest
-from ask_repo.ingestion.walker import RepoScan, find_python_files, walk_repo
+from ask_repo.ingestion.walker import RepoScan, walk_repo
 
 
 def make_fake_repo(tmp_path):
@@ -10,8 +10,10 @@ def make_fake_repo(tmp_path):
         ".github/workflows/ci.py": "def check():\n    pass\n",
         "broken_syntax.py": "def oops(:\n    pass\n",
         ".venv/lib/site.py": "def ignored():\n    pass\n",
+        ".venv/lib/broken_ignored.py": "def broken_in_venv(:\n    pass\n",  # Proves pruning happens before parsing
         "__pycache__/cached.py": "def cached():\n    pass\n",
     }
+
     for rel_path, content in files.items():
         full_path = tmp_path / rel_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -62,3 +64,33 @@ def test_walk_repo_records_skipped_files_by_error_type(tmp_path):
         ("broken_syntax.py", "SyntaxError"),
     ]
     assert all(isinstance(entry["message"], str) and entry["message"] for entry in result.skipped)
+
+
+def test_walk_repo_survives_parser_overflow_files(tmp_path):
+    # Real inputs that overflow the parser: a very long expression chain
+    # raises RecursionError, a long run of unary operators raises MemoryError.
+    # One such file must be recorded and skipped, never stop the scan.
+    (tmp_path / "chain.py").write_text("x = " + "+".join(["1"] * 100_000) + "\n", encoding="utf-8")
+    (tmp_path / "unary.py").write_text("x = " + "-" * 100_000 + "1\n", encoding="utf-8")
+    (tmp_path / "good.py").write_text("def ok():\n    pass\n", encoding="utf-8")
+
+    result = walk_repo(tmp_path)
+
+    assert [fn["name"] for fn in result.functions] == ["ok"]
+    assert [(e["file"], e["error_type"]) for e in result.skipped] == [
+        ("chain.py", "RecursionError"),
+        ("unary.py", "MemoryError"),
+    ]
+
+
+def test_walk_repo_does_not_hide_bugs_in_our_own_code(tmp_path, monkeypatch):
+    # The except clause is a list of known file problems, not "anything".
+    # An unexpected error (here a made-up bug) must still crash loudly.
+    (tmp_path / "a.py").write_text("def f():\n    pass\n", encoding="utf-8")
+
+    def buggy_extractor(path):
+        raise KeyError("a bug in our own code")
+
+    monkeypatch.setattr("ask_repo.ingestion.walker.extract_functions", buggy_extractor)
+    with pytest.raises(KeyError):
+        walk_repo(tmp_path)

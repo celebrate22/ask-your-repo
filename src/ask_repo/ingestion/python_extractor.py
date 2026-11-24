@@ -1,5 +1,7 @@
+"""Extract function and method locations from Python source code."""
+
 import ast
-import pprint
+import warnings
 
 
 class QualifiedFunctionVisitor(ast.NodeVisitor):
@@ -53,7 +55,13 @@ def extract_functions_from_source(source, filename="<string>"):
     "valid code with no functions", never "something went wrong". Deciding
     what to do about broken files is the caller's job.
     """
-    tree = ast.parse(source, filename=filename)
+    # Scanned code can make Python print warnings (for example "invalid
+    # escape sequence"). Those are the scanned repo's problem, not ours, so
+    # keep them out of our output. Only the parse call is wrapped.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        tree = ast.parse(source, filename=filename)
+
     visitor = QualifiedFunctionVisitor()
     visitor.visit(tree)
     return visitor.results  # already in file order, no sorting needed
