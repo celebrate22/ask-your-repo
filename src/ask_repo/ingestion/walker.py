@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .python_extractor import extract_functions
+from .python_extractor import extract_file
 
 # Conservative v1 skip list: unambiguous tool, cache, and dependency folders only.
 # Ambiguous names (like "build", "dist", "env") and hidden folders (like ".github")
@@ -39,6 +39,7 @@ SKIPPABLE_ERRORS = (SyntaxError, ValueError, OSError, RecursionError, MemoryErro
 class RepoScan:
     functions: list[dict] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)
+    modules: list[dict] = field(default_factory=list)
 
 
 def find_python_files(folder: str | os.PathLike) -> list[str]:
@@ -79,9 +80,9 @@ def walk_repo(root: str | os.PathLike) -> RepoScan:
     for rel_path in rel_paths:
         full_path = root_path / rel_path
 
-        # Wrap only extract_functions so bugs in our own dict-building logic still crash loudly
+        # Wrap only extract_file so bugs in our own dict-building logic still crash loudly
         try:
-            extracted = extract_functions(full_path)
+            extracted, module_ranges = extract_file(full_path)
         except SKIPPABLE_ERRORS as exc:
             scan.skipped.append(
                 {
@@ -94,5 +95,7 @@ def walk_repo(root: str | os.PathLike) -> RepoScan:
 
         for fn in extracted:
             scan.functions.append({"file": rel_path, **fn})
+        for module_range in module_ranges:
+            scan.modules.append({"file": rel_path, **module_range})
 
     return scan

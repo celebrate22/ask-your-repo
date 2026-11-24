@@ -55,16 +55,38 @@ def extract_functions_from_source(source, filename="<string>"):
     "valid code with no functions", never "something went wrong". Deciding
     what to do about broken files is the caller's job.
     """
-    # Scanned code can make Python print warnings (for example "invalid
-    # escape sequence"). Those are the scanned repo's problem, not ours, so
-    # keep them out of our output. Only the parse call is wrapped.
+    functions, _ = extract_source(source, filename=filename)
+    return functions
+
+
+def _module_ranges(tree):
+    groups = []
+    current_group = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if current_group:
+                groups.append(current_group)
+                current_group = []
+        else:
+            current_group.append(node)
+    if current_group:
+        groups.append(current_group)
+
+    return [
+        {"start_line": group[0].lineno, "end_line": group[-1].end_lineno}
+        for group in groups
+    ]
+
+
+def extract_source(source, filename="<string>"):
+    """Return function metadata and module ranges from one AST parse."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         tree = ast.parse(source, filename=filename)
 
     visitor = QualifiedFunctionVisitor()
     visitor.visit(tree)
-    return visitor.results  # already in file order, no sorting needed
+    return visitor.results, _module_ranges(tree)
 
 
 def extract_functions(file_path):
@@ -72,6 +94,12 @@ def extract_functions(file_path):
 
     File errors (missing file, bad encoding) are deliberately not caught.
     """
+    functions, _ = extract_file(file_path)
+    return functions
+
+
+def extract_file(file_path):
+    """Read and parse a Python file once, returning functions and module ranges."""
     with open(file_path, "r", encoding="utf-8") as file:
         source = file.read()
-    return extract_functions_from_source(source, filename=str(file_path))
+    return extract_source(source, filename=str(file_path))

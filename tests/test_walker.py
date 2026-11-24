@@ -91,6 +91,6 @@ def test_walk_repo_does_not_hide_bugs_in_our_own_code(tmp_path, monkeypatch):
     def buggy_extractor(path):
         raise KeyError("a bug in our own code")
 
-    monkeypatch.setattr("ask_repo.ingestion.walker.extract_functions", buggy_extractor)
+    monkeypatch.setattr("ask_repo.ingestion.walker.extract_file", buggy_extractor)
     with pytest.raises(KeyError):
         walk_repo(tmp_path)
