@@ -3,6 +3,9 @@ relative to that folder, skipping junk folders."""
 
 import os
 from pathlib import Path
+from .python_extractor import extract_functions
+from dataclasses import dataclass, field
+
 
 # Conservative v1 skip list: unambiguous tool, cache, and dependency folders only.
 # Ambiguous names (like "build", "dist", "env") and hidden folders (like ".github")
@@ -19,6 +22,10 @@ JUNK_DIRS = {
     "node_modules",
 }
 
+@dataclass
+class RepoScan:
+    functions: list[dict] = field(default_factory=list)
+    skipped: list[dict] = field(default_factory=list)
 
 def find_python_files(folder: str | os.PathLike) -> list[str]:
     """Return a sorted list of POSIX-style relative paths to all .py files in folder."""
@@ -40,3 +47,27 @@ def find_python_files(folder: str | os.PathLike) -> list[str]:
                 py_files.append(Path(rel_path).as_posix())
 
     return sorted(py_files)
+
+
+def walk_repo(root: str | os.PathLike) -> RepoScan:
+    """Walk a repository, extract functions from all Python files, and record unreadable files."""
+    # Intentionally outside try/except so a missing or invalid root raises immediately
+    rel_paths = find_python_files(root)
+    root_path = Path(root)
+    scan = RepoScan()
+
+    for rel_path in rel_paths:
+        full_path = root_path / rel_path
+
+        # Keep try as narrow as possible: wrap only the extractor call
+        try:
+            extracted = extract_functions(full_path)
+        except (SyntaxError, ValueError, OSError) as exc:
+            scan.skipped.append({"file": rel_path, "error": f"{type(exc).__name__}: {exc}"})
+            continue
+
+        for fn in extracted:
+            # Build a new dict instead of mutating the extractor's output in place
+            scan.functions.append({"file": rel_path, **fn})
+
+    return scan
