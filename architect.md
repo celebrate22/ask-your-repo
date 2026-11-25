@@ -1,210 +1,110 @@
-# Ask Your Repo: Architecture
+# Ask Your Repo: architecture and working rules
 
-A proposed design for a service that answers questions about a codebase and cites the exact file and line numbers behind every answer.
+For humans and coding agents. Read this before changing anything.
 
-> This is a design to build toward, not a description of what exists today. The function extractor (Stage 2 below) is the only piece written so far.
+## What it is
+A service that takes a codebase and answers questions about it, citing the
+exact files and lines. It is also a learning project: the owner is building it
+to learn production AI engineering. Prefer explaining and reviewing over
+writing everything for them, and never build ahead of what was asked.
 
----
-
-## 1. What the system does
-
-**Input:** a code repository and a question, e.g. *"Where do we validate user tokens?"*
-
-**Output:** an answer plus citations, e.g. `auth/tokens.py:42-67 (verify_token)`.
-
-**The key idea:** an LLM can't read a whole repo at once. So we split the system in two:
-
-1. **Ingestion (offline, slow):** read the repo once and build a searchable index.
-2. **Query (online, fast):** for each question, find the few relevant pieces of code and hand only those to the LLM.
-
-This pattern is called **RAG** (Retrieval-Augmented Generation).
-
----
-
-## 2. High-level picture
-
+## Architecture
 ```
-INGESTION (runs once per repo, and again when the repo changes)
+                         ┌──────────────┐
+   User ───────────────▶ │  API layer   │  FastAPI: accept repo URL, accept questions
+                         └──────┬───────┘
+                                │
+        ┌───────────────────────┼────────────────────────┐
+        ▼                       ▼                        ▼
+ ┌──────────────┐        ┌──────────────┐         ┌──────────────┐
+ │  Ingestion   │        │  Answering   │         │  Evaluation  │
+ │ [x] walker   │        │ retrieval    │         │ question set │
+ │ [x] extractor│        │   or agent   │         │ scoring      │
+ │ [x] chunker  │        │ build answer │         │ recall@k     │
+ │ [ ] GitHub   │        │ cite sources │         │ cost/latency │
+ └──────┬───────┘        └──────┬───────┘         └──────────────┘
+        ▼                       ▼
+ ┌──────────────────────────────────┐        ┌──────────────┐
+ │  Storage: Postgres (+ pgvector)  │        │ LLM API +    │
+ │  repos, files, chunks, embeddings│        │ embeddings   │
+ └──────────────────────────────────┘        └──────────────┘
 
- Repo ──► File walker ──► Parser/Extractor ──► Chunker ──► Embedder ──► Index
-          (find .py)      (ast: functions,     (one chunk   (text →      (vector DB
-                           lines, names)        per function) vector)      + metadata DB)
-
-
-QUERY (runs on every question)
-
- Question ──► API ──► Embed question ──► Retrieve top-k chunks ──► Build prompt ──► LLM
-                                              ▲                                      │
-                                              │                                      ▼
-                                           Index                          Answer + citations
-                                                                                     │
-                                                                          Validate citations
-                                                                                     │
-                                                                                     ▼
-                                                                                  Response
+ Across everything: config, logging, tests, error handling, Docker/deploy
 ```
+Open decision: indexed RAG, agentic search (grep / read_file tools), or both
+compared head to head. Not decided yet. Do not pick one silently.
 
----
-
-## 3. Components
-
-### Stage 1: File walker
-Walks the repo and picks files worth indexing. It skips `node_modules`, `.git`, build output, binaries, and huge generated files. Respecting `.gitignore` is a good default.
-
-### Stage 2: Parser / function extractor *(already built)*
-Uses Python's `ast` module to find every function and method, returning:
-
-| Field | Example |
-|---|---|
-| `name` | `verify_token` |
-| `qualified_name` | `TokenService.verify_token` |
-| `start_line` | `42` |
-| `end_line` | `67` |
-
-This is what makes **line-accurate citations** possible. Plain text splitting can't tell you where a function starts and ends.
-
-### Stage 3: Chunker
-Turns each extracted function into a **chunk**: the source text plus its metadata.
-
-Design decisions to make here:
-- **Granularity:** one chunk per function is a good start. Very large functions may need splitting; tiny ones may be grouped with their class.
-- **Context:** prepend the file path and class name to the chunk text so the embedding captures *where* the code lives.
-- **Non-function code:** module-level constants, imports, and docstrings matter too. Add a "module" chunk per file later.
-
-### Stage 4: Embedder
-Converts each chunk's text into a vector (a list of numbers) using an embedding model. Chunks with similar meaning end up with nearby vectors, which is what makes semantic search work.
-
-### Stage 5: Index (storage)
-Two kinds of data, two kinds of storage:
-
-| Data | Stored in | Why |
-|---|---|---|
-| Vectors | Vector index (e.g. pgvector, Qdrant, FAISS) | Fast nearest-neighbor search |
-| Chunk text + metadata | Relational DB (e.g. PostgreSQL) | Exact lookups, filtering, joins |
-
-A simple starting point is **PostgreSQL with pgvector**, which keeps both in one database.
-
-### Stage 6: Retriever
-On each question:
-1. Embed the question.
-2. Find the top-k most similar chunks (k around 5 to 10).
-3. *(Later improvement)* combine with keyword search (BM25) and **re-rank** the results. Code questions often include exact identifiers like `verify_token`, which keyword search handles better than embeddings.
-
-### Stage 7: Prompt builder
-Assembles what the LLM sees:
-
+Ingestion flow (built):
 ```
-You answer questions about a codebase using ONLY the snippets below.
-Cite every claim as [file:start-end]. If the snippets don't contain
-the answer, say so.
-
-[auth/tokens.py:42-67]
-<code of verify_token>
-
-[auth/middleware.py:10-30]
-<code of require_auth>
-
-Question: Where do we validate user tokens?
+folder -> find_python_files -> read_source -> make_chunks -> [Chunk]
+            (walker)          (extractor)      (chunker: parses and
+                                                slices the same string)
+          \______________ chunk_repo ______________/
 ```
+`walk_repo` (functions only, no text) remains as a separate scan.
+A Chunk has: id, path, kind (function | class | module), name,
+qualified_name, start_line, end_line, text, part, parts, plus a
+`search_text` property for embedding.
 
-### Stage 8: LLM
-Generates the answer from the retrieved snippets only.
+## Layer rule
+`api` calls `answering`, which calls `retrieval`, which calls `storage`.
+Never the reverse. Routes contain no queries or prompts.
 
-### Stage 9: Citation validator
-After the LLM responds, **check its citations against what was actually retrieved.** If it cites a file or line range that wasn't in the prompt, flag or remove it. This guards against hallucinated citations and is what makes the "with citations" promise trustworthy.
-
----
-
-## 4. Data model
-
+## Project structure (current status)
 ```
-repos
-  id, url, name, last_indexed_commit, indexed_at
-
-files
-  id, repo_id, path, language, content_hash
-
-chunks
-  id, file_id, name, qualified_name,
-  start_line, end_line, source_text,
-  embedding (vector)
-
-queries   (optional, for logging and evaluation)
-  id, repo_id, question, answer, cited_chunk_ids, created_at
+ask-your-repo/
+├── pyproject.toml                  [x] package and test configuration
+├── README.md                       [x] ingestion and evaluation usage
+├── docs/decisions.md               [x] why each choice was made
+├── src/ask_repo/
+│   ├── ingestion/
+│   │   ├── python_extractor.py     [x] functions + line ranges from source
+│   │   ├── walker.py               [x] find files, skip junk, report skipped
+│   │   ├── chunker.py              [x] source -> function/class/module chunks
+│   ├── retrieval/
+│   │   ├── __init__.py
+│   │   └── search.py               [x] keyword search; embeddings not started
+│   └── evals/
+│       ├── __init__.py
+│       ├── dataset/questions.jsonl [x] questions for sample_repo
+│       ├── metrics.py              [x] Recall@k and MRR@k
+│       └── run_eval.py             [x] evaluation command
+└── tests/
+    ├── fixtures/sample_repo/       [x] small independent eval corpus
+    ├── test_python_extractor.py    [x]
+    ├── test_find_python_files.py   [x]
+    ├── test_walker.py              [x]
+    ├── test_chunker.py             [x]
+    └── test_eval_metrics.py        [x]
 ```
+`ask_repo` and `ingestion` rely on namespace-package behavior; `retrieval` and
+`evals` have explicit `__init__.py` files. Create files only when their phase
+starts; no empty GitHub client placeholder is needed. Storage, embeddings,
+answering, API, background jobs, and deployment remain unbuilt.
 
-`content_hash` lets re-indexing skip files that haven't changed.
+## Working rules
+1. **Test first.** Write the failing test, with expected values worked out by
+   hand, and see it fail for the right reason before writing the code. Check
+   that a new test can fail: run it against the old or a deliberately wrong
+   version.
+2. **No silent failures.** `[]` must mean exactly one thing. No bare
+   `except Exception`. Keep every `try` as narrow as possible. Known file
+   problems are listed explicitly (see `SKIPPABLE_ERRORS` in walker.py), so
+   bugs in our own code still crash loudly.
+3. **Lines are split with a regex**, not `str.splitlines()`. Python counts
+   only `\n`, `\r\n`, `\r` as line breaks; `splitlines()` shifts line numbers
+   on form feeds and U+2028. Chunk text is cut from the same string that was
+   parsed. Python files are read with `read_source` (BOM and coding comments).
+4. **Evidence, not claims.** Run `pytest` and report the real output. Never
+   say something works without running it.
+5. **Small steps.** One piece at a time, reviewed before the next.
+6. **Write down decisions** in `docs/decisions.md`: what was chosen, why, what
+   would change the mind.
+7. Python 3.12, distribution name `askrepo`, import package `ask_repo`, and
+   `src` layout. Install with `pip install -e '.[dev]'`; run tests with
+   `pytest` from the project root.
 
----
-
-## 5. API sketch
-
-```
-POST /repos                    body: {"url": "..."}        → starts ingestion, returns repo_id
-GET  /repos/{id}/status                                    → "indexing" | "ready" | "failed"
-POST /repos/{id}/ask           body: {"question": "..."}   → {"answer": "...", "citations": [...]}
-```
-
-Ingestion is slow, so `POST /repos` should return immediately and do the work in the background (see section 6).
-
----
-
-## 6. Where system design ideas apply
-
-| Concern | Decision |
-|---|---|
-| **Slow ingestion** | Run it as a background job on a queue with a worker, not inside the web request. |
-| **Read-heavy queries** | Cache answers to repeated questions (keyed by repo, commit, and question). |
-| **Repo changes** | Re-index incrementally: compare `content_hash` per file and re-embed only what changed. |
-| **Embedding cost/latency** | Batch chunks into one embedding request instead of one call per chunk. |
-| **LLM latency** | Stream the answer to the client as it generates. |
-| **Statelessness** | Keep the API server stateless so you can run several copies behind a load balancer. |
-| **Multiple users/repos** | Always filter retrieval by `repo_id` so one repo's code never leaks into another's answers. |
-
----
-
-## 7. Failure modes to design for
-
-- **Retrieval misses the right code.** The LLM then answers confidently from the wrong snippets. Mitigation: hybrid search, re-ranking, and an "I couldn't find this" answer when similarity scores are low.
-- **Hallucinated citations.** Mitigation: the validator in Stage 9.
-- **Stale index.** The repo changed but the index didn't. Mitigation: store `last_indexed_commit` and show it in answers.
-- **Unparseable files.** Syntax errors will crash `ast`. Mitigation: catch the error, log it, and fall back to plain text chunking for that file.
-- **Prompt too long.** Too many or too large chunks. Mitigation: cap the token budget and trim the lowest-ranked chunks.
-
----
-
-## 8. Suggested build order
-
-Each step is usable on its own and teaches one concept:
-
-1. **Extractor** *(done)*: parse a file into functions with line ranges.
-2. **Repo-wide extractor:** walk a whole directory, handle errors, skip junk.
-3. **Chunk storage:** save chunks and metadata to SQLite, then PostgreSQL.
-4. **Embeddings + search:** embed chunks, run similarity search from a script.
-5. **Answer generation:** build the prompt, call the LLM, print the answer.
-6. **Citation validator:** reject citations not present in the retrieved chunks.
-7. **HTTP API:** wrap steps 2 to 6 in a small web service.
-8. **Background ingestion:** move indexing onto a queue and worker.
-9. **Caching and incremental re-indexing.**
-10. **Evaluation:** a fixed set of questions with known correct answers, to measure whether changes actually improve results.
-
----
-
-## 9. Testing strategy
-
-- **Unit tests:** extractor, chunker, and citation validator (deterministic, so easy to test with pytest).
-- **Retrieval tests:** for a sample repo, assert that known questions retrieve the known correct function in the top-k.
-- **End-to-end evals:** a question set with expected citations. Track the score over time so you can tell whether a change helped.
-
----
-
-## 10. Key trade-offs
-
-| Choice | Option A | Option B |
-|---|---|---|
-| Chunk size | Function-level: precise citations | File-level: more context, vaguer citations |
-| Storage | pgvector: one database, simple | Dedicated vector DB: faster at large scale |
-| Search | Embeddings only: simple | Hybrid + re-rank: better results, more moving parts |
-| Ingestion | On-demand: always fresh | Scheduled or webhook-driven: cheaper per query |
-
-**Recommended starting point:** function-level chunks, PostgreSQL with pgvector, embeddings-only search, and a background worker for ingestion. Add hybrid search once you can measure a retrieval problem.
+## Current state and next step
+Local Python ingestion, keyword search, and retrieval evaluation work. Next:
+a minimal FastAPI app with `/health` and one integration test, then a database
+table for chunks. The RAG versus agent direction is still open.

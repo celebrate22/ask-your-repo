@@ -1,7 +1,10 @@
 [project]
 name = "askrepo"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
 
 [build-system]
 requires = ["setuptools>=68"]

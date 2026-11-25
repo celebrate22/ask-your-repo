@@ -1,55 +1,70 @@
 # ask-your-repo
-RAG-powered codebase explorer: ask questions about your repo and get line-by-line explanations and references.
 
-## Ingestion flow
+A learning project for exploring Python repositories, finding relevant code,
+and eventually answering questions with source citations.
 
-The current ingestion path turns Python functions in a repository into
-citation-ready source chunks:
+## Current capabilities
 
-1. `find_python_files(root)` walks the directory tree and returns sorted,
-   repository-relative `.py` paths. It skips common dependency and cache
-   directories such as `.git`, `.venv`, and `node_modules`.
-2. `walk_repo(root)` sends each file to the Python AST extractor. It gathers
-   function and method names, qualified names, and inclusive line ranges. Known
-   file and parser errors are recorded in `RepoScan.skipped`; other errors
-   surface normally.
-3. `chunk_repo(root)` reads each Python file once during chunk assembly and
-   creates function chunks plus module chunks for consecutive top-level
-   statements outside functions and classes. Each chunk includes its source in
-   `text` and a file and line range for citations.
+The project currently supports local Python ingestion and keyword retrieval.
+It does not yet call an LLM, create embeddings, or store chunks in a database.
 
-For example, from the repository root:
+`chunk_repo(root)` finds Python files, reads and parses each source once, and
+returns a `ChunkScan` with `chunks` and `skipped` records. A frozen `Chunk`
+includes a stable ID, repository-relative `path`, `kind`, qualified name,
+source line range, source `text`, and part metadata. The `search_text` property
+adds location context for future embedding. Current keyword search tokenizes
+source text and boosts path/name matches separately.
+
+Chunk kinds are:
+
+- `function`: functions and methods, including nested functions.
+- `class`: the class header and its docstring, if present.
+- `module`: consecutive top-level statements that are not direct definitions.
+
+Chunks longer than 150 lines are divided into consecutive parts by default.
+Their ranges are inclusive. `text` is built from the same decoded source string
+that the parser used, split only at CRLF, CR, or LF boundaries.
+
+For example:
 
 ```python
 from ask_repo.ingestion.chunker import chunk_repo
 
-chunks = chunk_repo(".")
-for chunk in chunks:
-    print(f'{chunk["file"]}:{chunk["start_line"]}-{chunk["end_line"]}')
-    print(chunk["text"])
+scan = chunk_repo(".")
+for chunk in scan.chunks:
+    print(f"{chunk.path}:{chunk.start_line}-{chunk.end_line} [{chunk.kind}]")
+    print(chunk.text)
+for skipped in scan.skipped:
+    print(f"Skipped {skipped['file']}: {skipped['error_type']}")
 ```
 
-This is the source preparation stage: chunks are not embedded or persisted yet.
-Module chunks can include imports, constants, and other
-top-level statements. Class and function bodies are represented by their own
-function chunks, not included in module chunks.
+`make_chunks(path, source, *, max_lines=150)` is the pure source-to-chunks
+function. It parses the supplied source and can be tested without filesystem
+access. `walk_repo(root)` remains a separate helper that reports function
+metadata and skipped files; `chunk_repo` performs its own scan so parsing and
+chunk slicing use the same source string.
 
-If the caller also needs to report files that could not be scanned, use
-`chunk_repo_detailed(".")`. It returns an object with `chunks` and `skipped`
-lists; `chunk_repo(".")` remains the concise option when only chunks are
-needed.
+Install the package and development dependency, then run the tests:
+
+```sh
+python -m pip install -e '.[dev]'
+pytest
+```
 
 ## Keyword retrieval evaluation
 
-`keyword_search(chunks, query)` ranks chunks using BM25 keyword matching and
-gives extra weight to matches in file and function names. It selects evidence;
-it does not generate an answer. Run the small evaluation set with:
+`keyword_search(chunks, query)` ranks chunks with BM25-style keyword matching
+and gives extra weight to file and function names. It selects evidence; it does
+not write answers.
+
+The bundled questions use a small fixture repository, not this project's own
+source. Run them from the project root:
 
 ```sh
-PYTHONPATH=src python -m ask_repo.evals.run_eval .
+PYTHONPATH=src python -m ask_repo.evals.run_eval tests/fixtures/sample_repo
 ```
 
-The current six-question dataset scores **Recall@5: 83.3% (5/6)**. The missed
-expected chunk, `walk_repo`, ranks ninth. This is a small baseline for this
-repository, not a measure of general search accuracy. The dataset is in
-`src/ask_repo/evals/dataset/questions.jsonl`.
+Current fixture result: **Recall@5 100% and MRR@5 1.000** across six
+answerable questions; one question is correctly marked unanswerable because
+its expected function is absent. This synthetic set checks that the pipeline
+runs; it is too small to measure general retrieval quality.

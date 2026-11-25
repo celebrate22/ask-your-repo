@@ -1,45 +1,88 @@
 # Decisions
 
-Short notes on real choices: what I chose, why, and what would change my mind.
+Short notes on implementation choices, why they were made, and what might
+change them.
 
-## Syntax errors raise instead of returning []
-`extract_functions_from_source` raises on unparsable source. `[]` therefore
-means exactly one thing: valid code with no functions. `walk_repo` decides
-what to do about broken files (record and continue).
-Revisit if: a caller needs partial results from broken files.
+## Syntax errors raise in the extractor
+`extract_functions_from_source` raises `SyntaxError` for invalid Python.
+`walk_repo` and `chunk_repo` catch only the explicit `SKIPPABLE_ERRORS` list and
+report the file, error type, and message. An empty extraction result therefore
+means valid source with no functions.
 
-## Scan errors are an explicit list, not `except Exception`
-`SKIPPABLE_ERRORS` = SyntaxError, ValueError (includes UnicodeDecodeError and
-null bytes), OSError, RecursionError, MemoryError. The last two come from
-pathological files: a very long expression chain overflows the parser with
-RecursionError, a long run of unary operators with MemoryError ("Parser stack
-overflowed"). A bare `except Exception` would report bugs in our own code as
-"bad files". A test checks an unexpected error still crashes.
-Caveat: MemoryError could in principle be a real out-of-memory condition; the
-skipped entry keeps the message visible so it can be told apart.
+## Scan errors are an explicit list
+`SKIPPABLE_ERRORS` includes syntax, decoding/value, filesystem, recursion, and
+parser-memory failures. A bare `except Exception` would hide bugs in our own
+code. A `MemoryError` can still indicate process-wide memory pressure, so its
+recorded message must remain visible.
 
-## Warnings from scanned code are silenced during parsing only
-Scanned code can make Python warn (for example invalid escape sequences). Only
-the `ast.parse` call is wrapped in `warnings.catch_warnings()`.
-Caveat: `catch_warnings` is not thread-safe. Revisit when scans run in threads
-or an async API.
+## Scanned-code warnings are silenced during parsing
+Only the AST parse call is wrapped in `warnings.catch_warnings()`. This keeps
+warnings from untrusted repository code out of normal output. The warning
+filter is not thread-safe; revisit before parallel scans.
 
-## Skip list is conservative
-Only unambiguous tool, cache and dependency folders are skipped (.git, venv,
-.venv, __pycache__, caches, .tox, node_modules). Hidden folders like .github
-are kept. `env`, `build` and `dist` are NOT skipped, because they can be
-real source folders.
-Cost: a repo that contains a virtualenv named `env/` will be fully indexed,
-library code included.
-Revisit if: that hurts in a real scan. Likely fix: honor the repo's .gitignore.
+## The directory skip list is conservative
+The walker skips clear dependency and cache folders such as `.git`, `.venv`,
+`__pycache__`, and `node_modules`. Hidden source folders such as `.github` stay
+included. Ambiguous folders such as `build`, `dist`, and `env` are not skipped.
+Revisit if a real scan shows this indexes too much; honoring `.gitignore` is a
+possible next step.
 
-## Missing folders fail loudly, with the resolved path
-`find_python_files` raises FileNotFoundError / NotADirectoryError, and the
-message shows the absolute path searched, because relative-path mistakes are
-the most common cause.
+## Python files use Python's source decoding rules
+`read_source` uses `tokenize.open`, which honors a UTF-8 BOM and PEP 263 coding
+comments. Plain UTF-8 decoding would reject some valid Python files.
 
-## Known limits (not bugs)
-- Only functions and methods are extracted. Module-level code, constants and
-  class docstrings never become chunks.
-- `A.method` and `outer.inner` are indistinguishable (no `kind` field yet).
-- Python files only.
+## The chunker parses and slices one source string
+`chunk_repo` reads each candidate Python file with `read_source`, then passes
+that same decoded string to `make_chunks` for parsing and source slicing. This
+avoids a second read and prevents the parser's ranges from referring to an
+earlier file version. Each file is read and parsed once by `chunk_repo`.
+`walk_repo` remains a separate metadata-only scan and is not in this path.
+
+## Chunk types and overlap
+- `function`: functions and methods at any nesting depth, starting at their
+  first decorator.
+- `class`: class decorators and header, plus the docstring when present.
+- `module`: consecutive top-level statements other than direct function and
+  class definitions.
+
+Nested functions overlap their enclosing function chunks. A top-level compound
+statement such as an `if` can contain a definition and be included in a module
+chunk too. This simple rule preserves source context; search results may
+overlap. Class-level attributes and comments between statements are not
+separate chunks.
+
+## Chunk line boundaries match Python's parser
+`make_chunks` splits only on CRLF, CR, or LF with a regex. `str.splitlines()`
+also treats form feed and U+2028 as line boundaries, which can shift source
+ranges relative to Python's AST. Chunk text is joined with `\n`, retains source
+indentation, and omits a trailing newline.
+
+## Long chunks split by line count
+Chunks longer than `max_lines` (default 150) are divided into consecutive
+parts with exact inclusive line ranges. Parts do not overlap and can end in
+the middle of a logical block. Revisit after retrieval results show whether
+smarter split points would help.
+
+## Chunk IDs are content-based
+The ID hashes path, kind, qualified name, part number, and chunk text; line
+numbers are excluded. Shifting unchanged code keeps its ID, while changing the
+code changes it. Duplicate identical definitions receive a suffix to keep IDs
+unique within one file. Database key and cross-repository deduplication rules
+remain open for the storage phase.
+
+## Search text separates source from location context
+`Chunk.text` remains source code. `Chunk.search_text` prepends its path and
+qualified name for future embedding input. Current keyword search tokenizes
+the source and boosts path/name matches separately.
+
+## Retrieval evaluation uses a separate sample repository
+The bundled questions evaluate `tests/fixtures/sample_repo`, not this project's
+own source. Each question has an `expected` list of acceptable `(path,
+qualified_name)` pairs. The evaluator reports Recall@k and MRR@k; questions
+whose expected chunks do not exist are marked `UNANSWERABLE` and excluded from
+both metric denominators. A caller must provide the repository path, and
+skipped files are printed as warnings.
+
+The fixture is deliberately small and synthetic. Its results check the
+evaluation flow, not general search quality. For stronger comparisons, add a
+larger independent sample repository and keep its question set fixed.
