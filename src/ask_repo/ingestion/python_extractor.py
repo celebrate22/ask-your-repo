@@ -1,6 +1,7 @@
 """Extract function and method locations from Python source code."""
 
 import ast
+import tokenize
 import warnings
 
 
@@ -48,6 +49,34 @@ class QualifiedFunctionVisitor(ast.NodeVisitor):
         self.visit_FunctionDef(node)
 
 
+def parse_source(source, filename="<string>"):
+    """Parse Python source into an AST, without printing the code's warnings.
+
+    Scanned code can make Python print warnings (for example "invalid
+    escape sequence"). Those are the scanned repo's problem, not ours, so
+    keep them out of our output. Only the parse call is wrapped.
+    Raises SyntaxError (and, for pathological input, RecursionError or
+    MemoryError). Never swallows them: the caller decides what to do.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return ast.parse(source, filename=filename)
+
+
+def read_source(file_path):
+    """Read a Python source file the way Python itself does.
+
+    tokenize.open honors a UTF-8 BOM and a PEP 263 coding comment such as
+    "# -*- coding: latin-1 -*-". Plain open(..., encoding="utf-8") would
+    make a BOM file fail to parse and a latin-1 file fail to decode, so a
+    perfectly valid file would be reported as broken.
+    Raises OSError (missing/unreadable file) and SyntaxError or
+    UnicodeDecodeError (undecodable bytes).
+    """
+    with tokenize.open(file_path) as file:
+        return file.read()
+
+
 def extract_functions_from_source(source, filename="<string>"):
     """Return all functions in `source`, in file order.
 
@@ -55,51 +84,15 @@ def extract_functions_from_source(source, filename="<string>"):
     "valid code with no functions", never "something went wrong". Deciding
     what to do about broken files is the caller's job.
     """
-    functions, _ = extract_source(source, filename=filename)
-    return functions
-
-
-def _module_ranges(tree):
-    groups = []
-    current_group = []
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if current_group:
-                groups.append(current_group)
-                current_group = []
-        else:
-            current_group.append(node)
-    if current_group:
-        groups.append(current_group)
-
-    return [
-        {"start_line": group[0].lineno, "end_line": group[-1].end_lineno}
-        for group in groups
-    ]
-
-
-def extract_source(source, filename="<string>"):
-    """Return function metadata and module ranges from one AST parse."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        tree = ast.parse(source, filename=filename)
-
+    tree = parse_source(source, filename=filename)
     visitor = QualifiedFunctionVisitor()
     visitor.visit(tree)
-    return visitor.results, _module_ranges(tree)
+    return visitor.results  # already in file order, no sorting needed
 
 
 def extract_functions(file_path):
-    """Read a UTF-8 file and extract its functions.
+    """Read a Python file and extract its functions.
 
-    File errors (missing file, bad encoding) are deliberately not caught.
+    File errors (missing file, undecodable bytes) are deliberately not caught.
     """
-    functions, _ = extract_file(file_path)
-    return functions
-
-
-def extract_file(file_path):
-    """Read and parse a Python file once, returning functions and module ranges."""
-    with open(file_path, "r", encoding="utf-8") as file:
-        source = file.read()
-    return extract_source(source, filename=str(file_path))
+    return extract_functions_from_source(read_source(file_path), filename=str(file_path))

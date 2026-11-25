@@ -1,96 +1,58 @@
 import pytest
-from ask_repo.ingestion.walker import RepoScan, walk_repo
+
+from ask_repo.ingestion.python_extractor import (
+    extract_functions,
+    extract_functions_from_source,
+)
 
 
-def make_fake_repo(tmp_path):
-    """Create a realistic fake repo with valid files, broken files, and junk."""
-    files = {
-        "main.py": "def run():\n    return 1\n",
-        "pkg/mod.py": "def helper(x):\n    return x + 1\n",
-        ".github/workflows/ci.py": "def check():\n    pass\n",
-        "broken_syntax.py": "def oops(:\n    pass\n",
-        ".venv/lib/site.py": "def ignored():\n    pass\n",
-        ".venv/lib/broken_ignored.py": "def broken_in_venv(:\n    pass\n",  # Proves pruning happens before parsing
-        "__pycache__/cached.py": "def cached():\n    pass\n",
-    }
+def test_extract_functions_reports_decorated_async_and_nested_functions():
+    source = (
+        "@cache\n"
+        "async def outer():\n"
+        "    def inner():\n"
+        "        return 1\n"
+        "    return inner()\n"
+    )
 
-    for rel_path, content in files.items():
-        full_path = tmp_path / rel_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")
-
-    bad_bytes = tmp_path / "bad_encoding.py"
-    bad_bytes.write_bytes(b"def f():\n    return '\xff\xfe'\n")
-
-    return tmp_path
-
-
-def test_walk_repo_missing_folder_raises(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        walk_repo(tmp_path / "does_not_exist")
-
-
-def test_walk_repo_empty_folder_returns_empty_scan(tmp_path):
-    assert walk_repo(tmp_path) == RepoScan()
-
-
-def test_walk_repo_extracts_functions_with_file_paths(tmp_path):
-    repo = make_fake_repo(tmp_path)
-    result = walk_repo(repo)
-
-    assert [(fn["file"], fn["name"]) for fn in result.functions] == [
-        (".github/workflows/ci.py", "check"),
-        ("main.py", "run"),
-        ("pkg/mod.py", "helper"),
+    assert extract_functions_from_source(source) == [
+        {
+            "name": "outer",
+            "qualified_name": "outer",
+            "start_line": 1,
+            "end_line": 5,
+        },
+        {
+            "name": "inner",
+            "qualified_name": "outer.inner",
+            "start_line": 3,
+            "end_line": 4,
+        },
     ]
 
-    # Verify one complete merged function dict to ensure **fn didn't drop or corrupt fields
-    main_fn = next(fn for fn in result.functions if fn["file"] == "main.py")
-    assert main_fn == {
-        "file": "main.py",
+
+def test_extract_functions_reports_class_method_qualified_name():
+    source = "class Service:\n    def run(self):\n        return True\n"
+
+    assert extract_functions_from_source(source) == [{
         "name": "run",
-        "qualified_name": "run",
-        "start_line": 1,
-        "end_line": 2,
-    }
+        "qualified_name": "Service.run",
+        "start_line": 2,
+        "end_line": 3,
+    }]
 
 
-def test_walk_repo_records_skipped_files_by_error_type(tmp_path):
-    repo = make_fake_repo(tmp_path)
-    result = walk_repo(repo)
-
-    assert [(entry["file"], entry["error_type"]) for entry in result.skipped] == [
-        ("bad_encoding.py", "UnicodeDecodeError"),
-        ("broken_syntax.py", "SyntaxError"),
-    ]
-    assert all(isinstance(entry["message"], str) and entry["message"] for entry in result.skipped)
+def test_extract_functions_from_source_raises_for_invalid_python():
+    with pytest.raises(SyntaxError):
+        extract_functions_from_source("def broken(:\n    pass\n")
 
 
-def test_walk_repo_survives_parser_overflow_files(tmp_path):
-    # Real inputs that overflow the parser: a very long expression chain
-    # raises RecursionError, a long run of unary operators raises MemoryError.
-    # One such file must be recorded and skipped, never stop the scan.
-    (tmp_path / "chain.py").write_text("x = " + "+".join(["1"] * 100_000) + "\n", encoding="utf-8")
-    (tmp_path / "unary.py").write_text("x = " + "-" * 100_000 + "1\n", encoding="utf-8")
-    (tmp_path / "good.py").write_text("def ok():\n    pass\n", encoding="utf-8")
+def test_extract_functions_reads_python_encoding_declarations(tmp_path):
+    source_file = tmp_path / "latin.py"
+    source_file.write_bytes(
+        b"# -*- coding: latin-1 -*-\n"
+        b"label = '\xe9'\n"
+        b"def get_label():\n    return label\n"
+    )
 
-    result = walk_repo(tmp_path)
-
-    assert [fn["name"] for fn in result.functions] == ["ok"]
-    assert [(e["file"], e["error_type"]) for e in result.skipped] == [
-        ("chain.py", "RecursionError"),
-        ("unary.py", "MemoryError"),
-    ]
-
-
-def test_walk_repo_does_not_hide_bugs_in_our_own_code(tmp_path, monkeypatch):
-    # The except clause is a list of known file problems, not "anything".
-    # An unexpected error (here a made-up bug) must still crash loudly.
-    (tmp_path / "a.py").write_text("def f():\n    pass\n", encoding="utf-8")
-
-    def buggy_extractor(path):
-        raise KeyError("a bug in our own code")
-
-    monkeypatch.setattr("ask_repo.ingestion.walker.extract_file", buggy_extractor)
-    with pytest.raises(KeyError):
-        walk_repo(tmp_path)
+    assert extract_functions(source_file)[0]["qualified_name"] == "get_label"
