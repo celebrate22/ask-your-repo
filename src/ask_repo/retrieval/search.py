@@ -1,7 +1,11 @@
 """Deterministic keyword retrieval for source chunks."""
 from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 import math
 import re
+
+from ..ingestion.chunker import Chunk
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*|\d+")
 _CAMEL_PART = re.compile(r"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+|[A-Z]+|\d+")
 
@@ -18,7 +22,11 @@ def _tokens(text: str) -> list[str]:
     return tokens
 
 
-def keyword_search(chunks: list[dict], query: str, top_k: int = 5) -> list[dict]:
+def keyword_search(
+    chunks: Sequence[Mapping[str, object] | Chunk],
+    query: str,
+    top_k: int = 5,
+) -> list[dict]:
     """Rank chunks using BM25 text relevance plus a metadata match boost.
 
     Returns copies of matching chunks with a numeric ``score`` field. Function
@@ -33,13 +41,17 @@ def keyword_search(chunks: list[dict], query: str, top_k: int = 5) -> list[dict]
     if not query_terms or not chunks:
         return []
 
-    content_tokens = [_tokens(chunk.get("text", "")) for chunk in chunks]
+    chunk_dicts = [
+        asdict(chunk) if isinstance(chunk, Chunk) else dict(chunk)
+        for chunk in chunks
+    ]
+    content_tokens = [_tokens(chunk.get("text", "")) for chunk in chunk_dicts]
     metadata_tokens = [
         _tokens(" ".join(
             str(chunk.get(field, ""))
             for field in ("file", "name", "qualified_name")
         ))
-        for chunk in chunks
+        for chunk in chunk_dicts
     ]
     content_counts = [Counter(tokens) for tokens in content_tokens]
     metadata_sets = [set(tokens) for tokens in metadata_tokens]
@@ -56,7 +68,7 @@ def keyword_search(chunks: list[dict], query: str, top_k: int = 5) -> list[dict]
     k1, b = 1.5, 0.75
     ranked = []
 
-    for index, chunk in enumerate(chunks):
+    for index, chunk in enumerate(chunk_dicts):
         length = len(content_tokens[index])
         score = 0.0
         for term in query_terms:

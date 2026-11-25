@@ -1,6 +1,7 @@
-{"id":"file-walker","question":"Which function finds Python files and skips dependency and cache folders?","expected_file":"src/ask_repo/ingestion/walker.py","expected_qualified_name":"find_python_files"}
-{"id":"scan-errors","question":"Which function records file errors and continues scanning the repository?","expected_file":"src/ask_repo/ingestion/walker.py","expected_qualified_name":"walk_repo"}
-{"id":"function-extraction","question":"Which function extracts functions and module ranges from one AST parse?","expected_file":"src/ask_repo/ingestion/python_extractor.py","expected_qualified_name":"extract_source"}
-{"id":"source-chunks","question":"Which function creates function and module chunks with source text and line ranges?","expected_file":"src/ask_repo/ingestion/chunker.py","expected_qualified_name":"chunk_repo_detailed"}
-{"id":"simple-chunk-api","question":"Which function returns only the chunks without skipped-file diagnostics?","expected_file":"src/ask_repo/ingestion/chunker.py","expected_qualified_name":"chunk_repo"}
-{"id":"keyword-ranking","question":"Which function uses BM25 to rank code chunks for a query?","expected_file":"src/ask_repo/retrieval/search.py","expected_qualified_name":"keyword_search"}
+{"id":"token-expiry","question":"Which function checks whether a token has expired?","expected":[{"path":"src/auth.py","qualified_name":"is_token_expired"}]}
+{"id":"login-token","question":"Which functions handle authentication and login tokens?","expected":[{"path":"src/auth.py","qualified_name":"is_token_expired"},{"path":"src/auth.py","qualified_name":"require_login"}]}
+{"id":"authorization-header","question":"Which function requires an Authorization header before allowing login?","expected":[{"path":"src/auth.py","qualified_name":"require_login"}]}
+{"id":"background-indexing","question":"Which function queues a repository indexing job in the background?","expected":[{"path":"src/indexing.py","qualified_name":"enqueue_repository_index"}]}
+{"id":"retry-indexing","question":"Which function retries a failed indexing job by adding it to the queue again?","expected":[{"path":"src/indexing.py","qualified_name":"retry_failed_job"}]}
+{"id":"find-python","question":"Which function returns Python source files found under a folder?","expected":[{"path":"src/indexing.py","qualified_name":"find_python_sources"}]}
+{"id":"delete-account","question":"Which function deletes a user account?","expected":[{"path":"src/accounts.py","qualified_name":"delete_account"}]}
