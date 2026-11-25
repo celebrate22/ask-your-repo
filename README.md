@@ -29,8 +29,8 @@ for chunk in chunks:
     print(chunk["text"])
 ```
 
-This is the source preparation stage only: chunks are not embedded, persisted,
-or searched yet. Module chunks can include imports, constants, and other
+This is the source preparation stage: chunks are not embedded or persisted yet.
+Module chunks can include imports, constants, and other
 top-level statements. Class and function bodies are represented by their own
 function chunks, not included in module chunks.
 
@@ -38,3 +38,18 @@ If the caller also needs to report files that could not be scanned, use
 `chunk_repo_detailed(".")`. It returns an object with `chunks` and `skipped`
 lists; `chunk_repo(".")` remains the concise option when only chunks are
 needed.
+
+## Keyword retrieval evaluation
+
+`keyword_search(chunks, query)` ranks chunks using BM25 keyword matching and
+gives extra weight to matches in file and function names. It selects evidence;
+it does not generate an answer. Run the small evaluation set with:
+
+```sh
+PYTHONPATH=src python -m ask_repo.evals.run_eval .
+```
+
+The current six-question dataset scores **Recall@5: 83.3% (5/6)**. The missed
+expected chunk, `walk_repo`, ranks ninth. This is a small baseline for this
+repository, not a measure of general search accuracy. The dataset is in
+`src/ask_repo/evals/dataset/questions.jsonl`.
