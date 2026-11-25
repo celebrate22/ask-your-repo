@@ -1,0 +1,6 @@
+{"id":"file-walker","question":"Which function finds Python files and skips dependency and cache folders?","expected_file":"src/ask_repo/ingestion/walker.py","expected_qualified_name":"find_python_files"}
+{"id":"scan-errors","question":"Which function records file errors and continues scanning the repository?","expected_file":"src/ask_repo/ingestion/walker.py","expected_qualified_name":"walk_repo"}
+{"id":"function-extraction","question":"Which function extracts functions and module ranges from one AST parse?","expected_file":"src/ask_repo/ingestion/python_extractor.py","expected_qualified_name":"extract_source"}
+{"id":"source-chunks","question":"Which function creates function and module chunks with source text and line ranges?","expected_file":"src/ask_repo/ingestion/chunker.py","expected_qualified_name":"chunk_repo_detailed"}
+{"id":"simple-chunk-api","question":"Which function returns only the chunks without skipped-file diagnostics?","expected_file":"src/ask_repo/ingestion/chunker.py","expected_qualified_name":"chunk_repo"}
+{"id":"keyword-ranking","question":"Which function uses BM25 to rank code chunks for a query?","expected_file":"src/ask_repo/retrieval/search.py","expected_qualified_name":"keyword_search"}
