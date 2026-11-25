@@ -7,6 +7,7 @@ and eventually answering questions with source citations.
 
 The project currently supports local Python ingestion and keyword retrieval.
 It does not yet call an LLM, create embeddings, or store chunks in a database.
+It also exposes a small FastAPI health endpoint at `/health`.
 
 `chunk_repo(root)` finds Python files, reads and parses each source once, and
 returns a `ChunkScan` with `chunks` and `skipped` records. A frozen `Chunk`
@@ -50,6 +51,16 @@ Install the package and development dependency, then run the tests:
 python -m pip install -e '.[dev]'
 pytest
 ```
+
+Run the API locally with Uvicorn:
+
+```sh
+uvicorn ask_repo.api.app:app --reload
+```
+
+Open `http://127.0.0.1:8000/health`; the response should be
+`{"status":"ok"}`. The health endpoint confirms that the API process is
+responding. It does not yet check a database or other services.
 
 ## Keyword retrieval evaluation
 
