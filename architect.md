@@ -64,6 +64,11 @@ ask-your-repo/
 │   ├── retrieval/
 │   │   ├── __init__.py
 │   │   └── search.py               [x] keyword search; embeddings not started
+│   ├── storage/
+│   │   └── models.py               [started] repositories, files, and chunks
+│   ├── api/
+│   │   ├── app.py                  [x] FastAPI app and route registration
+│   │   └── routes/health.py        [x] `/health` endpoint
 │   └── evals/
 │       ├── __init__.py
 │       ├── dataset/questions.jsonl [x] questions for sample_repo
@@ -75,12 +80,16 @@ ask-your-repo/
     ├── test_find_python_files.py   [x]
     ├── test_walker.py              [x]
     ├── test_chunker.py             [x]
-    └── test_eval_metrics.py        [x]
+    ├── test_eval_metrics.py        [x]
+    ├── integration/test_health.py [x]
+    └── storage/test_models.py     [x]
 ```
-`ask_repo` and `ingestion` rely on namespace-package behavior; `retrieval` and
-`evals` have explicit `__init__.py` files. Create files only when their phase
-starts; no empty GitHub client placeholder is needed. Storage, embeddings,
-answering, API, background jobs, and deployment remain unbuilt.
+`ask_repo`, `ingestion`, `storage`, and `api` rely on namespace-package
+behavior; `retrieval` and `evals` have explicit `__init__.py` files. Storage
+currently has model definitions only: database connections, migrations, and
+writing ingested chunks remain to be built. Embeddings, answering, background
+jobs, and deployment also remain unbuilt. No empty GitHub client placeholder
+is needed.
 
 ## Working rules
 1. **Test first.** Write the failing test, with expected values worked out by
@@ -105,6 +114,9 @@ answering, API, background jobs, and deployment remain unbuilt.
    `pytest` from the project root.
 
 ## Current state and next step
-Local Python ingestion, keyword search, and retrieval evaluation work. Next:
-a minimal FastAPI app with `/health` and one integration test, then a database
-table for chunks. The RAG versus agent direction is still open.
+Local Python ingestion, keyword search, and retrieval evaluation work. A
+minimal FastAPI app exposes `/health`. Initial SQLAlchemy models describe
+repositories, files, and chunks; they are checked with an in-memory SQLite
+test, not PostgreSQL. Next: configure a database connection, then create
+migrations and store chunks from ingestion. The RAG versus agent direction is
+still open.

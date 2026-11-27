@@ -86,3 +86,13 @@ skipped files are printed as warnings.
 The fixture is deliberately small and synthetic. Its results check the
 evaluation flow, not general search quality. For stronger comparisons, add a
 larger independent sample repository and keep its question set fixed.
+
+## Initial storage models
+SQLAlchemy models describe repositories, repository-relative files, and code
+chunks. A chunk keeps its stable chunker ID, source text, and inclusive line
+range so retrieval results can later be cited. Database rows use integer
+primary keys; the chunker's ID remains a separate unique key within its file.
+The in-memory SQLite test checks the model relationships quickly. It is not a
+substitute for testing against PostgreSQL, which is still the intended runtime
+database. Database connections, migrations, embeddings, and ingestion writes
+are not implemented yet.
