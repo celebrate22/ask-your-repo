@@ -57,6 +57,7 @@ ask-your-repo/
 ├── README.md                       [x] ingestion and evaluation usage
 ├── docs/decisions.md               [x] why each choice was made
 ├── src/ask_repo/
+│   ├── config.py                   [x] read DATABASE_URL from environment
 │   ├── ingestion/
 │   │   ├── python_extractor.py     [x] functions + line ranges from source
 │   │   ├── walker.py               [x] find files, skip junk, report skipped
@@ -84,15 +85,17 @@ ask-your-repo/
     ├── test_eval_metrics.py        [x]
     ├── integration/test_health.py [x]
     ├── storage/test_db.py         [x]
-    └── storage/test_models.py     [x]
+    ├── storage/test_models.py     [x]
+    └── test_config.py             [x]
 ```
 `ask_repo`, `ingestion`, `storage`, and `api` rely on namespace-package
 behavior; `retrieval` and `evals` have explicit `__init__.py` files. Storage
 has models plus an engine/session factory that accepts a database URL.
-Application configuration, PostgreSQL connection setup, migrations, and
-writing ingested chunks remain to be built. Embeddings, answering, background
-jobs, and deployment also remain unbuilt. No empty GitHub client placeholder
-is needed.
+Settings can read `DATABASE_URL` from the process environment, but are not yet
+wired to the engine. PostgreSQL connection setup, migrations, and writing
+ingested chunks remain to be built. Embeddings, answering, background jobs,
+and deployment also remain unbuilt. No empty GitHub client placeholder is
+needed.
 
 ## Working rules
 1. **Test first.** Write the failing test, with expected values worked out by
@@ -121,6 +124,6 @@ Local Python ingestion, keyword search, and retrieval evaluation work. A
 minimal FastAPI app exposes `/health`. Initial SQLAlchemy models describe
 repositories, files, and chunks; an engine and session factory accept a
 database URL. They are checked with in-memory SQLite, not PostgreSQL. Next:
-load the URL from application settings, connect to PostgreSQL, create
-migrations, and store chunks from ingestion. The RAG versus agent direction
-is still open.
+wire application settings to the engine, connect to PostgreSQL, create
+migrations, and store chunks from ingestion. The RAG versus agent direction is
+still open.

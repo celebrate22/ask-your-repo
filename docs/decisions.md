@@ -94,6 +94,7 @@ range so retrieval results can later be cited. Database rows use integer
 primary keys; the chunker's ID remains a separate unique key within its file.
 The in-memory SQLite test checks the model relationships quickly. It is not a
 substitute for testing against PostgreSQL, which is still the intended runtime
-database. The engine and session factory accept a URL explicitly until
-application settings are added. PostgreSQL driver setup, migrations,
+database. `Settings.from_env()` reads `DATABASE_URL` when called and hides the
+URL from its printed representation because it may contain credentials. The
+settings are not yet wired to the engine. PostgreSQL driver setup, migrations,
 embeddings, and ingestion writes are not implemented yet.
