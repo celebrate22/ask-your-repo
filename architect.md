@@ -65,7 +65,8 @@ ask-your-repo/
 │   │   ├── __init__.py
 │   │   └── search.py               [x] keyword search; embeddings not started
 │   ├── storage/
-│   │   └── models.py               [started] repositories, files, and chunks
+│   │   ├── db.py                   [x] engine and session factory
+│   │   └── models.py               [x] repositories, files, and chunks
 │   ├── api/
 │   │   ├── app.py                  [x] FastAPI app and route registration
 │   │   └── routes/health.py        [x] `/health` endpoint
@@ -82,11 +83,13 @@ ask-your-repo/
     ├── test_chunker.py             [x]
     ├── test_eval_metrics.py        [x]
     ├── integration/test_health.py [x]
+    ├── storage/test_db.py         [x]
     └── storage/test_models.py     [x]
 ```
 `ask_repo`, `ingestion`, `storage`, and `api` rely on namespace-package
 behavior; `retrieval` and `evals` have explicit `__init__.py` files. Storage
-currently has model definitions only: database connections, migrations, and
+has models plus an engine/session factory that accepts a database URL.
+Application configuration, PostgreSQL connection setup, migrations, and
 writing ingested chunks remain to be built. Embeddings, answering, background
 jobs, and deployment also remain unbuilt. No empty GitHub client placeholder
 is needed.
@@ -116,7 +119,8 @@ is needed.
 ## Current state and next step
 Local Python ingestion, keyword search, and retrieval evaluation work. A
 minimal FastAPI app exposes `/health`. Initial SQLAlchemy models describe
-repositories, files, and chunks; they are checked with an in-memory SQLite
-test, not PostgreSQL. Next: configure a database connection, then create
-migrations and store chunks from ingestion. The RAG versus agent direction is
-still open.
+repositories, files, and chunks; an engine and session factory accept a
+database URL. They are checked with in-memory SQLite, not PostgreSQL. Next:
+load the URL from application settings, connect to PostgreSQL, create
+migrations, and store chunks from ingestion. The RAG versus agent direction
+is still open.
